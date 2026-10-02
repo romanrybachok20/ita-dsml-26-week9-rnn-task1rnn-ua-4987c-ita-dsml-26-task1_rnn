@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tensorflow.keras.layers import LSTM, Dense, Dropout
 
 """Task 1 — One-step time series forecasting with LSTM (Keras).
 
@@ -108,7 +109,21 @@ def make_windows(series: np.ndarray, window: int) -> Tuple[np.ndarray, np.ndarra
     Keras RNN layers expect inputs shaped as (batch, time, features).
     Here features=1 because the time series is univariate.
     """
-    raise NotImplementedError
+    series = np.array(series, dtype=np.float32) 
+    if series.ndim == 1 and np.isfinite(series).all():
+        if isinstance(window, int) and window >= 1 and window < len(series):
+            future_windows = []
+            answers = []
+            for t in range(window, len(series)):
+                future_windows.append(series[t - window : t])
+                answers.append(series[t])
+            X = np.array(future_windows, dtype=np.float32).reshape(-1,window,1)
+            y = np.array(answers, dtype=np.float32).reshape(-1,1)
+        else: 
+            raise ValueError("Invalid input")
+    else:
+        raise ValueError("Invalid input") 
+    return X,y
 
 
 def time_split(
@@ -148,7 +163,19 @@ def time_split(
     - Do NOT shuffle.
     - The split is performed on already-windowed samples.
     """
-    raise NotImplementedError
+    if len(X) == len(y) and train_frac > 0 and val_frac > 0 and train_frac + val_frac < 1:
+        n = len(X)
+        train_end = int(train_frac * n)
+        val_end = int(n * (train_frac + val_frac))
+        if train_end > 0 and val_end > train_end and val_end < n: 
+            X_train, y_train =  X[:train_end], y[:train_end]
+            X_val, y_val = X[train_end:val_end], y[train_end:val_end]
+            X_test, y_test = X[val_end:], y[val_end:]
+        else:
+            raise ValueError("Empty part")
+    else:
+        raise ValueError("Error")
+    return  (X_train, y_train), (X_val, y_val), (X_test, y_test)
 
 
 def build_model(
@@ -186,7 +213,20 @@ def build_model(
     -----
     You may change the architecture slightly, but keep I/O shapes the same.
     """
-    raise NotImplementedError
+    model = tf.keras.Sequential([
+        LSTM(n_units,input_shape=(window, 1)),
+        Dropout(dropout),
+        Dense(dense_units, activation='relu'),
+        Dense(1)
+    ])
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+        loss='mse',
+        metrics=['mae']
+    )
+
+    return model
+
 
 
 def train_model(
@@ -245,7 +285,22 @@ def train_model(
     - Prefer using EarlyStopping (optional) to reduce overfitting.
     - Keep the function deterministic as much as possible.
     """
-    raise NotImplementedError
+    tf.keras.utils.set_random_seed(seed)
+    X, y = make_windows(series,window)
+    (X_train, y_train), (X_val, y_val), (X_test, y_test) = time_split(X, y, train_frac, val_frac)
+    model = build_model(window)
+    callbacks = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+    history = model.fit(
+        X_train,y_train,
+        validation_data=(X_val, y_val),
+        epochs=epochs,
+        batch_size=batch_size,
+        verbose=verbose,
+        callbacks=[callbacks],
+        shuffle=False
+    )
+    return model, X_test, y_test, history
+
 
 
 # ----------------------------
